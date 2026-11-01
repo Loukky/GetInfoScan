@@ -83,6 +83,21 @@
 - `_Wrath` 写的是 Titan Reforged 的 `38002`；官方 WotLK Classic（`30405`）共用同一个游戏类型，会显示「过期」但照常能用。
 - 如果你要自己加 Lua 文件，**记得同步加进全部 7 份 TOC**，漏掉哪一份那部分玩家就会加载到不完整的插件。
 
+## 发布（维护者）
+
+打版本标签即自动发到 CurseForge：
+
+```bash
+git tag v1.5.0 && git push origin v1.5.0
+```
+
+- 触发：推送 `v*` 标签，或在 GitHub 上发布 Release。**普通 push 到主分支不会上传**。
+- 项目 ID `1734764`，令牌来自仓库 secret **`CURSEFORGE_TOKEN`**（Settings → Secrets and variables → Actions）。
+- 版本号取自标签（`v1.5.0` → `1.5.0`），没有标签时回落到 TOC 里的 `## Version`。
+- 标签含 `alpha` / `beta` 时对应 alpha / beta 发布，否则为正式版。
+- 游戏版本按 7 份 TOC 的 Interface 号自动映射，无需手工维护。
+- 想只验证打包不上传：手动运行 Release workflow，`dry_run` 保持勾选即可，zip 会作为 artifact 留下。
+
 ## 授权
 
 **MIT License**，版权归 **Loukky**，完整文本见 [LICENSE](LICENSE)。
@@ -173,6 +188,21 @@ The addon ships 7 TOC files and the client picks one according to its game type 
 
 - `_Wrath` carries `38002` (Titan Reforged). Retail WotLK Classic (`30405`) shares the same game type, so it will show as "out of date" but still works.
 - If you add a Lua file of your own, **add it to all 7 TOCs** — miss one and players on that client get an incomplete addon.
+
+### Releasing (maintainer)
+
+Tagging a version publishes to CurseForge automatically:
+
+```bash
+git tag v1.5.0 && git push origin v1.5.0
+```
+
+- Triggers on a pushed `v*` tag or a published GitHub Release. **A normal push to main never uploads.**
+- Project ID `1734764`; the token comes from the repository secret **`CURSEFORGE_TOKEN`** (Settings → Secrets and variables → Actions).
+- The version comes from the tag (`v1.5.0` → `1.5.0`), falling back to `## Version` in the TOC.
+- A tag containing `alpha` / `beta` publishes as alpha / beta, anything else as a release.
+- Game versions are mapped from the `## Interface` value in all 7 TOCs, so there is nothing to maintain by hand.
+- To check packaging without publishing, run the Release workflow manually and leave `dry_run` ticked — the zip is kept as an artifact.
 
 ### License
 
