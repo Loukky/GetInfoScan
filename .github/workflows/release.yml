@@ -1,11 +1,12 @@
 name: Release
 
-# Publishes the addon zip to CurseForge when a version tag is pushed
-# (v1.4.0, v2.0.0-beta.1, ...) or when a GitHub Release is published.
-# Pushing to main never publishes anything.
+# Publishes the addon when a version tag is pushed (v1.4.0, v2.0.0-beta.1, ...).
+# A published GitHub Release is also a trigger, so a release created by hand
+# works too. Pushing to main never publishes anything.
 #
-# The version comes from ## Version in GetInfoScan.toc. Bump it there, commit,
-# then tag the commit — the tag only decides alpha / beta / release.
+# The tag names the version. The workflow rewrites ## Version in every TOC to
+# match before packing, then commits that back to main, so the repository and
+# the zip never disagree. You only bump the tag.
 on:
   push:
     tags: ["v*"]
@@ -17,23 +18,26 @@ on:
         description: "Tag to publish, e.g. v1.4.0"
         required: true
       dry_run:
-        description: "Only build the zip, skip the CurseForge upload"
+        description: "Only build the zip, skip the uploads"
         type: boolean
         default: true
 
 permissions:
-  contents: read
+  contents: write
   actions: read
 
-# Creating a Release for a new tag also pushes the tag, so both triggers fire
-# for the same version. The tag push runs first and the second run waits here,
-# which is what lets the duplicate check below see its result.
 concurrency:
   group: release-${{ github.event.release.tag_name || inputs.tag || github.ref_name }}
   cancel-in-progress: false
 
+env:
+  # Written into the Release body once the file is on CurseForge. A Release we
+  # create ourselves fires this same workflow again; the marker is what tells
+  # that second run the work is already done. More reliable than run history.
+  MARKER: "<!-- cf-published"
+
 jobs:
-  curseforge:
+  publish:
     runs-on: ubuntu-latest
     steps:
       - name: Check out
@@ -44,10 +48,10 @@ jobs:
       - name: Resolve tag and version
         id: meta
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           EVENT: ${{ github.event_name }}
           INPUT_TAG: ${{ inputs.tag }}
           RELEASE_TAG: ${{ github.event.release.tag_name }}
+          RELEASE_BODY: ${{ github.event.release.body }}
           REF_NAME: ${{ github.ref_name }}
         run: |
           set -euo pipefail
@@ -58,30 +62,25 @@ jobs:
           else
             tag="$REF_NAME"
           fi
-          # The addon version is whatever GetInfoScan.toc says; the tag only
-          # decides alpha / beta / release.
-          version=$(sed -n 's/^##[[:space:]]*Version[[:space:]]*:[[:space:]]*//p' GetInfoScan.toc | head -n1 | tr -d '\r[:space:]')
-          if [ -z "$version" ]; then
-            echo "::error::GetInfoScan.toc has no ## Version line"
+          case "$tag" in
+            v*) version="${tag#v}" ;;
+            *)  version="$tag" ;;
+          esac
+          if ! printf '%s' "$version" | grep -Eq '^[0-9]'; then
+            echo "::error::tag $tag does not carry a version (expected v1.4.0)"
             exit 1
           fi
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
           echo "version=$version" >> "$GITHUB_OUTPUT"
-          echo "::notice::version $version from GetInfoScan.toc (tag $tag)"
 
-          # Do not upload the same version twice: if the tag push already
-          # published it, this run only needs to confirm that.
+          # This run was started by a Release we published ourselves.
           skip=false
-          if [ "$EVENT" = "release" ]; then
-            prior=$(gh run list --workflow=release.yml --limit 50 \
-              --json headBranch,event,conclusion \
-              --jq "[.[] | select(.headBranch == \"$tag\" and .event == \"push\" and .conclusion == \"success\")] | length")
-            if [ "$prior" != "0" ]; then
-              echo "::notice::$tag was already published by its tag push; skipping upload"
-              skip=true
-            fi
+          if [ "$EVENT" = "release" ] && [[ "$RELEASE_BODY" == *"$MARKER"* ]]; then
+            echo "::notice::$tag was already published; nothing to do"
+            skip=true
           fi
           echo "skip=$skip" >> "$GITHUB_OUTPUT"
+          echo "::notice::publishing $version from $tag"
 
       - name: Check the packaging script
         if: steps.meta.outputs.skip != 'true'
@@ -120,7 +119,54 @@ jobs:
             --tag "${{ steps.meta.outputs.tag }}" \
             --changelog dist/changelog.md \
             --out-dir dist \
+            --sync-toc \
             ${{ inputs.dry_run == true && '--dry-run' || '' }}
+
+      - name: Publish GitHub Release
+        if: steps.meta.outputs.skip != 'true' && inputs.dry_run != true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.meta.outputs.tag }}
+          VERSION: ${{ steps.meta.outputs.version }}
+        run: |
+          set -euo pipefail
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" dist/*.zip --clobber
+            exit 0
+          fi
+          case "$VERSION" in
+            *alpha*|*beta*) prerelease="--prerelease" ;;
+            *)              prerelease="" ;;
+          esac
+          { cat dist/changelog.md; echo; echo "$MARKER -->"; } > dist/notes.md
+          gh release create "$TAG" dist/*.zip \
+            --title "GetInfoScan $VERSION" \
+            --notes-file dist/notes.md \
+            --verify-tag $prerelease
+
+      # Keeps the repository in step with what was just published: the next
+      # release starts from a matching ## Version instead of a stale one.
+      - name: Sync TOC version to main
+        if: steps.meta.outputs.skip != 'true' && inputs.dry_run != true
+        env:
+          VERSION: ${{ steps.meta.outputs.version }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          # Tag pushes check out a detached HEAD, and the upload step already
+          # rewrote the TOCs in place; -f drops those edits and redoes them on
+          # top of main. This push does not retrigger anything (GITHUB_TOKEN),
+          # which is fine: nothing here needs to run again.
+          git checkout -q -f -B main origin/main
+          python3 .github/scripts/curseforge_release.py --tag "v${VERSION}" --sync-toc-only
+          if git diff --quiet -- '*.toc'; then
+            echo "TOC versions already at ${VERSION}"
+            exit 0
+          fi
+          git add -- '*.toc'
+          git commit -q -m "chore(release): set TOC version to ${VERSION}"
+          git push origin HEAD:main
 
       - name: Keep the built zip
         if: always() && steps.meta.outputs.skip != 'true'
