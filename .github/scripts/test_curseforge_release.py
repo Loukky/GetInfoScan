@@ -91,11 +91,11 @@ def make_repo(root: Path) -> None:
             encoding="utf-8",
         )
     (root / "Core.lua").write_text("-- addon\n", encoding="utf-8")
-    (root / "Libs").mkdir()
+    (root / "Libs").mkdir(exist_ok=True)
     (root / "Libs" / "LibStub.lua").write_text("-- lib\n", encoding="utf-8")
-    (root / ".github").mkdir()
+    (root / ".github").mkdir(exist_ok=True)
     (root / ".gitignore").write_text("dist/\n", encoding="utf-8")
-    (root / ".vscode").mkdir()
+    (root / ".vscode").mkdir(exist_ok=True)
 
 
 def main() -> int:
@@ -119,29 +119,32 @@ def main() -> int:
     assert cfr.resolve_game_versions(unknown, "tok") == [2], "fallback must pick the newest titan version"
     print("unknown interface -> newest titan version ok")
 
-    # Version + release type.
-    assert cfr.pick_version("v1.4.0", tocs) == "1.4.0"
-    assert cfr.pick_version(None, tocs) == "1.4.0", "TOC fallback"
+    # The version is whatever GetInfoScan.toc says — a tag never overrides it.
+    assert cfr.pick_version(tocs) == "1.4.0"
     assert cfr.release_type("v1.4.0") == "release"
     assert cfr.release_type("v1.4.0-beta.2") == "beta"
     assert cfr.release_type("v2.0.0-alpha") == "alpha"
     assert cfr.release_type(None) == "release"
     print("version/releaseType ok")
 
-    # ## Version in every TOC follows the release version, byte-for-byte apart
-    # from the value itself (BOM and CRLF must survive).
-    crlf = root / "GetInfoScan_TBC.toc"
-    crlf.write_bytes(b"\xef\xbb\xbf## Interface: 20506\r\n## Version: 1.4.0\r\n\r\nCore.lua\r\n")
-    changed = cfr.sync_toc_versions(root, "2.0.0")
-    assert len(changed) == 7, changed
-    for path in sorted(root.glob("*.toc")):
-        raw = path.read_bytes()
-        assert b"## Version: 2.0.0" in raw, (path.name, raw[:120])
-        assert b"## Version: 1.4.0" not in raw, path.name
-    assert crlf.read_bytes().startswith(b"\xef\xbb\xbf## Interface: 20506\r\n"), "BOM/CRLF lost"
-    assert crlf.read_bytes().count(b"\r\n") == 4, "line endings rewritten"
-    assert cfr.sync_toc_versions(root, "2.0.0") == [], "second run must be a no-op"
-    print("toc version sync ok")
+    # Editing the version in the TOC is the only thing that changes it, and
+    # the other six TOCs do not get a vote.
+    (root / "GetInfoScan.toc").write_text("## Interface: 120100\n## Version: 9.9.9\n", encoding="utf-8")
+    (root / "GetInfoScan_Wrath.toc").write_text("## Interface: 38002\n## Version: 1.0.0\n", encoding="utf-8")
+    assert cfr.pick_version(cfr.read_tocs(root)) == "9.9.9", "GetInfoScan.toc must win"
+    print("version comes from GetInfoScan.toc ok")
+
+    # A repo without that TOC is a hard error, not a guess.
+    (root / "GetInfoScan.toc").unlink()
+    try:
+        cfr.pick_version(cfr.read_tocs(root))
+    except SystemExit as exc:
+        assert exc.code == 1, exc.code
+        print("missing GetInfoScan.toc -> SystemExit(1) ok")
+    else:
+        raise AssertionError("a missing GetInfoScan.toc must fail")
+    make_repo(root)  # restore the fixture
+    tocs = cfr.read_tocs(root)
 
     # Zip layout: everything under GetInfoScan/, no repo plumbing.
     archive = cfr.build_zip(root, "1.4.0", root / "dist")

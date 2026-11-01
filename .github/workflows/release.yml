@@ -3,6 +3,9 @@ name: Release
 # Publishes the addon zip to CurseForge when a version tag is pushed
 # (v1.4.0, v2.0.0-beta.1, ...) or when a GitHub Release is published.
 # Pushing to main never publishes anything.
+#
+# The version comes from ## Version in GetInfoScan.toc. Bump it there, commit,
+# then tag the commit — the tag only decides alpha / beta / release.
 on:
   push:
     tags: ["v*"]
@@ -19,7 +22,7 @@ on:
         default: true
 
 permissions:
-  contents: write
+  contents: read
   actions: read
 
 # Creating a Release for a new tag also pushes the tag, so both triggers fire
@@ -55,12 +58,16 @@ jobs:
           else
             tag="$REF_NAME"
           fi
-          case "$tag" in
-            v*) version="${tag#v}" ;;
-            *)  version="$tag" ;;
-          esac
+          # The addon version is whatever GetInfoScan.toc says; the tag only
+          # decides alpha / beta / release.
+          version=$(sed -n 's/^##[[:space:]]*Version[[:space:]]*:[[:space:]]*//p' GetInfoScan.toc | head -n1 | tr -d '\r[:space:]')
+          if [ -z "$version" ]; then
+            echo "::error::GetInfoScan.toc has no ## Version line"
+            exit 1
+          fi
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
           echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "::notice::version $version from GetInfoScan.toc (tag $tag)"
 
           # Do not upload the same version twice: if the tag push already
           # published it, this run only needs to confirm that.
@@ -122,25 +129,3 @@ jobs:
           name: GetInfoScan-${{ steps.meta.outputs.version }}
           path: dist/*.zip
           if-no-files-found: warn
-
-      # The zip already carries the release version (the script rewrites the
-      # TOCs before packing). This keeps the repository in step, so the next
-      # release starts from a matching ## Version instead of a stale one.
-      - name: Sync TOC version to the default branch
-        if: steps.meta.outputs.skip != 'true' && inputs.dry_run != true
-        env:
-          VERSION: ${{ steps.meta.outputs.version }}
-        run: |
-          set -euo pipefail
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          # Tag pushes check out a detached HEAD; the commit goes to main.
-          git checkout -q -B main origin/main
-          python3 .github/scripts/curseforge_release.py --tag "v${VERSION}" --sync-toc-only
-          if git diff --quiet -- '*.toc'; then
-            echo "TOC versions already at ${VERSION}"
-            exit 0
-          fi
-          git add -- '*.toc'
-          git commit -q -m "chore(release): set TOC version to ${VERSION}"
-          git push origin HEAD:main

@@ -4,6 +4,9 @@
 Runs inside the Release workflow; standard library only so the runner needs no
 setup. Nothing here is addon code — it only reads the TOC files.
 
+The addon version comes from ## Version in GetInfoScan.toc; the tag only
+decides whether the file is published as alpha, beta or release.
+
     python3 .github/scripts/curseforge_release.py --tag v1.4.0 --changelog dist/changelog.md
 
 Exit code 0 means the file is on CurseForge. Anything else fails the workflow.
@@ -78,34 +81,17 @@ def read_tocs(root: Path) -> list[dict]:
     return tocs
 
 
-def pick_version(tag: str | None, tocs: list[dict]) -> str:
-    """Release tag wins; the TOC Version is the fallback."""
-    if tag:
-        stripped = tag.lstrip("vV")
-        if re.match(r"^\d", stripped):
-            return stripped
+VERSION_TOC = "GetInfoScan.toc"
+
+
+def pick_version(tocs: list[dict]) -> str:
+    """The addon version is whatever GetInfoScan.toc says. Nothing else counts."""
     for toc in tocs:
-        if toc["version"]:
-            return toc["version"]
-    fail("cannot determine a version: no tag and no ## Version in any TOC")
-
-
-VERSION_LINE = re.compile(r"^(##\s*Version\s*:\s*)([^\r\n]*)", re.M)
-
-
-def sync_toc_versions(root: Path, version: str) -> list[str]:
-    """Rewrite ## Version: in every root TOC so the zip ships the release version.
-
-    Byte-level edit: only the value changes, BOM and line endings survive.
-    """
-    changed = []
-    for path in sorted(root.glob("*.toc")):
-        text = path.read_bytes().decode("utf-8", "replace")
-        new = VERSION_LINE.sub(lambda m: m.group(1) + version, text, count=1)
-        if new != text:
-            path.write_bytes(new.encode("utf-8"))
-            changed.append(path.name)
-    return changed
+        if toc["name"] == VERSION_TOC:
+            if toc["version"]:
+                return toc["version"]
+            fail(f"{VERSION_TOC} has no ## Version line")
+    fail(f"{VERSION_TOC} is missing; it holds the addon version")
 
 
 def release_type(tag: str | None) -> str:
@@ -247,21 +233,11 @@ def upload(archive: Path, metadata: dict, token: str) -> int:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--tag", help="release tag, e.g. v1.4.0")
+    parser.add_argument("--tag", help="release tag, used only to pick alpha/beta/release")
     parser.add_argument("--changelog", help="file holding the changelog text")
     parser.add_argument("--changelog-type", default="markdown", choices=("text", "html", "markdown"))
     parser.add_argument("--root", default=".", help="repository root")
     parser.add_argument("--out-dir", default="dist", help="where to write the zip")
-    parser.add_argument(
-        "--no-sync-toc",
-        action="store_true",
-        help="leave ## Version in the TOC files alone",
-    )
-    parser.add_argument(
-        "--sync-toc-only",
-        action="store_true",
-        help="only rewrite ## Version in the TOC files, then exit",
-    )
     parser.add_argument("--dry-run", action="store_true", help="build the zip and stop")
     args = parser.parse_args()
 
@@ -269,13 +245,8 @@ def main() -> int:
     token = os.environ.get("CURSEFORGE_TOKEN", "").strip()
 
     tocs = read_tocs(root)
-    version = pick_version(args.tag, tocs)
+    version = pick_version(tocs)
     kind = release_type(args.tag)
-
-    if args.sync_toc_only:
-        changed = sync_toc_versions(root, version)
-        log(f"TOC version -> {version}: {', '.join(changed) if changed else 'already up to date'}")
-        return 0
 
     changelog = ""
     if args.changelog and Path(args.changelog).is_file():
@@ -285,10 +256,6 @@ def main() -> int:
 
     display_name = f"{ADDON} {version}"
     log(f"version={version} releaseType={kind} displayName={display_name!r}")
-
-    if not args.no_sync_toc:
-        changed = sync_toc_versions(root, version)
-        log(f"TOC version -> {version}: {', '.join(changed) if changed else 'already up to date'}")
 
     archive = build_zip(root, version, Path(args.out_dir))
     if args.dry_run:

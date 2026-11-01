@@ -85,20 +85,22 @@
 
 ## 发布（维护者）
 
-打版本标签即自动发到 CurseForge：
+版本号只写在 `GetInfoScan.toc` 的 `## Version` 里。改版本号、提交、打标签，就会自动发到 CurseForge：
 
 ```bash
-git tag v1.5.0 && git push origin v1.5.0
+# 1. 改 GetInfoScan.toc 里的 ## Version: 1.5.0
+git commit -am "release 1.5.0"
+git tag v1.5.0
+git push origin main v1.5.0
 ```
 
 - 触发：推送 `v*` 标签，或在 GitHub 上发布 Release。**普通 push 到主分支不会上传**。
 - 项目 ID `1734764`，令牌来自仓库 secret **`CURSEFORGE_TOKEN`**（Settings → Secrets and variables → Actions）。
-- 版本号取自标签（`v1.5.0` → `1.5.0`），没有标签时回落到 TOC 里的 `## Version`。
+- **版本号只读 `GetInfoScan.toc`**，其他 6 份 TOC 不参与；标签只用来决定 alpha / beta / release，标签写什么都改不了版本号。所以改完 TOC 记得提交，否则打出来的还是旧版本。
 - 标签含 `alpha` / `beta` 时对应 alpha / beta 发布，否则为正式版。
 - 游戏版本按 7 份 TOC 的 Interface 号自动映射，无需手工维护。
 - 想只验证打包不上传：手动运行 Release workflow，`dry_run` 保持勾选即可，zip 会作为 artifact 留下。
 - 打 tag 和建 Release 是同一件事，两个触发都会跑，但**只会上传一次**：后一个 run 检测到标签推送已发布成功就直接跳过。
-- **TOC 的 `## Version` 会自动同步**：打包前脚本把 7 份 TOC 的版本号改成标签版本（zip 里就是新版本号），发布成功后再提交一次 `chore(release): set TOC version to X` 到主分支，所以你不用手动改。
 - 依赖更新：Dependabot 每月检查一次（`.github/dependabot.yml`），把 action 版本升级提成 PR。workflow 里的 action 都写死到具体版本（`actions/checkout@v7.0.1`、`actions/upload-artifact@v7.0.2`），不会被上游悄悄换掉。
 
 ## 授权
@@ -194,20 +196,22 @@ The addon ships 7 TOC files and the client picks one according to its game type 
 
 ### Releasing (maintainer)
 
-Tagging a version publishes to CurseForge automatically:
+The version lives in `## Version` in `GetInfoScan.toc`. Bump it, commit, tag, and it publishes to CurseForge:
 
 ```bash
-git tag v1.5.0 && git push origin v1.5.0
+# 1. set ## Version: 1.5.0 in GetInfoScan.toc
+git commit -am "release 1.5.0"
+git tag v1.5.0
+git push origin main v1.5.0
 ```
 
 - Triggers on a pushed `v*` tag or a published GitHub Release. **A normal push to main never uploads.**
 - Project ID `1734764`; the token comes from the repository secret **`CURSEFORGE_TOKEN`** (Settings → Secrets and variables → Actions).
-- The version comes from the tag (`v1.5.0` → `1.5.0`), falling back to `## Version` in the TOC.
+- **The version is read from `GetInfoScan.toc` only** — the other 6 TOCs do not count, and the tag only decides alpha / beta / release, never the version number. So commit the TOC change, or you will publish the old version.
 - A tag containing `alpha` / `beta` publishes as alpha / beta, anything else as a release.
 - Game versions are mapped from the `## Interface` value in all 7 TOCs, so there is nothing to maintain by hand.
 - To check packaging without publishing, run the Release workflow manually and leave `dry_run` ticked — the zip is kept as an artifact.
 - Tagging and creating a Release are the same event, so both triggers fire, but the upload happens **once**: the second run sees that the tag push already published and skips.
-- **`## Version` in the TOCs is synced automatically**: before packing, the script rewrites all 7 TOCs to the tag version (so the zip reports the new version), and after a successful publish it commits `chore(release): set TOC version to X` to the default branch. You never edit the version by hand.
 - Dependency updates: Dependabot checks monthly (`.github/dependabot.yml`) and opens PRs for action bumps. The workflow pins exact versions (`actions/checkout@v7.0.1`, `actions/upload-artifact@v7.0.2`) so upstream cannot swap them silently.
 
 ### License

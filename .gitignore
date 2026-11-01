@@ -8,3 +8,7 @@ Thumbs.db
 # Local Lua tooling
 .luarc.json
 luac.out
+
+# Release tooling
+__pycache__/
+dist/
