@@ -119,42 +119,24 @@ def main() -> int:
     assert cfr.resolve_game_versions(unknown, "tok") == [2], "fallback must pick the newest titan version"
     print("unknown interface -> newest titan version ok")
 
-    # The tag names the version; the TOC is the fallback when there is none.
-    assert cfr.pick_version("v1.4.0", tocs) == "1.4.0"
-    assert cfr.pick_version("v2.0.0-beta.1", tocs) == "2.0.0-beta.1"
-    assert cfr.pick_version(None, tocs) == "1.4.0", "TOC fallback"
+    # The version always comes from GetInfoScan.toc, never from the tag.
+    assert cfr.pick_version(tocs) == "1.4.0"
     assert cfr.release_type("v1.4.0") == "release"
     assert cfr.release_type("v1.4.0-beta.2") == "beta"
     assert cfr.release_type("v2.0.0-alpha") == "alpha"
     assert cfr.release_type(None) == "release"
     print("version/releaseType ok")
 
-    # A tag wins over a stale TOC, and the fallback reads GetInfoScan.toc only.
+    # The other six TOCs do not get a vote.
     (root / "GetInfoScan.toc").write_text("## Interface: 120100\n## Version: 9.9.9\n", encoding="utf-8")
     (root / "GetInfoScan_Wrath.toc").write_text("## Interface: 38002\n## Version: 1.0.0\n", encoding="utf-8")
-    assert cfr.pick_version("v5.0.0", cfr.read_tocs(root)) == "5.0.0", "tag must win"
-    assert cfr.pick_version(None, cfr.read_tocs(root)) == "9.9.9", "GetInfoScan.toc is the fallback"
-    print("tag wins, GetInfoScan.toc is the fallback ok")
-
-    # The sync rewrites every TOC, byte-for-byte apart from the value (BOM and
-    # CRLF must survive).
-    crlf = root / "GetInfoScan_TBC.toc"
-    crlf.write_bytes(b"\xef\xbb\xbf## Interface: 20506\r\n## Version: 1.4.0\r\n\r\nCore.lua\r\n")
-    changed = cfr.sync_toc_versions(root, "2.0.0")
-    assert len(changed) == 7, changed
-    for path in sorted(root.glob("*.toc")):
-        raw = path.read_bytes()
-        assert b"## Version: 2.0.0" in raw, (path.name, raw[:120])
-        assert b"## Version: 1.4.0" not in raw, path.name
-    assert crlf.read_bytes().startswith(b"\xef\xbb\xbf## Interface: 20506\r\n"), "BOM/CRLF lost"
-    assert crlf.read_bytes().count(b"\r\n") == 4, "line endings rewritten"
-    assert cfr.sync_toc_versions(root, "2.0.0") == [], "second run must be a no-op"
-    print("toc version sync ok")
+    assert cfr.pick_version(cfr.read_tocs(root)) == "9.9.9", "GetInfoScan.toc must win"
+    print("version comes from GetInfoScan.toc ok")
 
     # A repo with no TOC at all is a hard error, not a guess.
     (root / "GetInfoScan.toc").unlink()
     try:
-        cfr.pick_version(None, cfr.read_tocs(root))
+        cfr.pick_version(cfr.read_tocs(root))
     except SystemExit as exc:
         assert exc.code == 1, exc.code
         print("missing GetInfoScan.toc -> SystemExit(1) ok")
@@ -204,17 +186,29 @@ def main() -> int:
     else:
         raise AssertionError("upload must fail the step on HTTP errors")
 
-    # --sync-toc rewrites the TOCs as part of a real run, before packing.
+    # --expect-version: the tag must match the TOC, or the step fails loudly.
     cfr.API_BASE = "http://127.0.0.1:1"
     os.environ.pop("CURSEFORGE_TOKEN", None)
     sys.argv = [
         "x", "--root", str(root), "--tag", "v3.0.0",
-        "--out-dir", str(root / "dist"), "--sync-toc", "--dry-run",
+        "--expect-version", "3.0.0", "--out-dir", str(root / "dist"), "--dry-run",
+    ]
+    try:
+        cfr.main()
+    except SystemExit as exc:
+        assert exc.code == 1, exc.code
+        print("tag/TOC mismatch -> SystemExit(1) ok")
+    else:
+        raise AssertionError("a tag that disagrees with the TOC must fail")
+
+    # Matching version builds and packs the TOC's version, not the tag's.
+    sys.argv = [
+        "x", "--root", str(root), "--tag", "v1.4.0",
+        "--expect-version", "1.4.0", "--out-dir", str(root / "dist"), "--dry-run",
     ]
     assert cfr.main() == 0
-    for path in sorted(root.glob("*.toc")):
-        assert b"## Version: 3.0.0" in path.read_bytes(), path.name
-    print("--sync-toc rewrites every TOC before packing ok")
+    assert (root / "dist" / "GetInfoScan-1.4.0.zip").is_file()
+    print("matching tag builds the TOC version ok")
 
     # Missing token must fail before any network call.
     cfr.API_BASE = "http://127.0.0.1:1"

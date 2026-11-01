@@ -85,18 +85,21 @@
 
 ## 发布（维护者）
 
-打标签就够了，版本号不用手改：
+先改 `GetInfoScan.toc` 的 `## Version`，提交，再打同名标签：
 
 ```bash
+# 1. 把 GetInfoScan.toc 改成 ## Version: 1.5.0
+git commit -am "release 1.5.0"
+# 2. 打同一个版本号的标签并推送
 git tag v1.5.0
-git push origin v1.5.0
+git push origin main v1.5.0
 ```
 
-流程会依次：把 7 份 TOC 的 `## Version` 改成标签版本 → 打包 → 传到 CurseForge → 建 GitHub Release（附 zip）→ 把 TOC 版本号提交回主分支。
+流程会依次：校验标签和 TOC 版本号是否一致 → 打包 → 传到 CurseForge → 建 GitHub Release（附 zip）。
 
 - 触发：推送 `v*` 标签，或在 GitHub 上发布 Release。**普通 push 到主分支不会上传**。
 - 项目 ID `1734764`，令牌来自仓库 secret **`CURSEFORGE_TOKEN`**（Settings → Secrets and variables → Actions）。
-- **版本号来自标签**（`v1.5.0` → `1.5.0`）；仓库里 TOC 的版本号是流程写完推回来的，一般不用你动。
+- **版本号取自 `GetInfoScan.toc`**，标签只用来决定 alpha / beta / release。标签和 TOC 不一致会直接失败并提示，不会发出错的版本号。
 - 标签含 `alpha` / `beta` 时对应 alpha / beta 发布（Release 也会标成 pre-release），否则为正式版。
 - 游戏版本按 7 份 TOC 的 Interface 号自动映射，无需手工维护。
 - 想只验证打包不上传：手动运行 Release workflow，`dry_run` 保持勾选即可，zip 会作为 artifact 留下。
@@ -196,18 +199,21 @@ The addon ships 7 TOC files and the client picks one according to its game type 
 
 ### Releasing (maintainer)
 
-Tagging is all it takes — you never edit the version by hand:
+Bump `## Version` in `GetInfoScan.toc`, commit, then tag the same version:
 
 ```bash
+# 1. set ## Version: 1.5.0 in GetInfoScan.toc
+git commit -am "release 1.5.0"
+# 2. tag the same version and push
 git tag v1.5.0
-git push origin v1.5.0
+git push origin main v1.5.0
 ```
 
-The workflow then: rewrites `## Version` in all 7 TOCs to the tag version, packs the zip, uploads it to CurseForge, creates the GitHub Release with the zip attached, and commits the TOC version back to main.
+The workflow then: checks that the tag matches the TOC, packs the zip, uploads it to CurseForge, and creates the GitHub Release with the zip attached.
 
 - Triggers on a pushed `v*` tag or a published GitHub Release. **A normal push to main never uploads.**
 - Project ID `1734764`; the token comes from the repository secret **`CURSEFORGE_TOKEN`** (Settings → Secrets and variables → Actions).
-- **The version comes from the tag** (`v1.5.0` → `1.5.0`); the TOC version in the repository is written back by the workflow, so you normally leave it alone.
+- **The version comes from `GetInfoScan.toc`**; the tag only decides alpha / beta / release. If the two disagree the run fails immediately instead of publishing the wrong version.
 - A tag containing `alpha` / `beta` publishes as alpha / beta (and the Release is marked pre-release), anything else as a release.
 - Game versions are mapped from the `## Interface` value in all 7 TOCs, so there is nothing to maintain by hand.
 - To check packaging without publishing, run the Release workflow manually and leave `dry_run` ticked — the zip is kept as an artifact.
