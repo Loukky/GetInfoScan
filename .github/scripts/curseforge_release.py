@@ -90,6 +90,24 @@ def pick_version(tag: str | None, tocs: list[dict]) -> str:
     fail("cannot determine a version: no tag and no ## Version in any TOC")
 
 
+VERSION_LINE = re.compile(r"^(##\s*Version\s*:\s*)([^\r\n]*)", re.M)
+
+
+def sync_toc_versions(root: Path, version: str) -> list[str]:
+    """Rewrite ## Version: in every root TOC so the zip ships the release version.
+
+    Byte-level edit: only the value changes, BOM and line endings survive.
+    """
+    changed = []
+    for path in sorted(root.glob("*.toc")):
+        text = path.read_bytes().decode("utf-8", "replace")
+        new = VERSION_LINE.sub(lambda m: m.group(1) + version, text, count=1)
+        if new != text:
+            path.write_bytes(new.encode("utf-8"))
+            changed.append(path.name)
+    return changed
+
+
 def release_type(tag: str | None) -> str:
     lowered = (tag or "").lower()
     if "alpha" in lowered:
@@ -234,6 +252,16 @@ def main() -> int:
     parser.add_argument("--changelog-type", default="markdown", choices=("text", "html", "markdown"))
     parser.add_argument("--root", default=".", help="repository root")
     parser.add_argument("--out-dir", default="dist", help="where to write the zip")
+    parser.add_argument(
+        "--no-sync-toc",
+        action="store_true",
+        help="leave ## Version in the TOC files alone",
+    )
+    parser.add_argument(
+        "--sync-toc-only",
+        action="store_true",
+        help="only rewrite ## Version in the TOC files, then exit",
+    )
     parser.add_argument("--dry-run", action="store_true", help="build the zip and stop")
     args = parser.parse_args()
 
@@ -243,6 +271,12 @@ def main() -> int:
     tocs = read_tocs(root)
     version = pick_version(args.tag, tocs)
     kind = release_type(args.tag)
+
+    if args.sync_toc_only:
+        changed = sync_toc_versions(root, version)
+        log(f"TOC version -> {version}: {', '.join(changed) if changed else 'already up to date'}")
+        return 0
+
     changelog = ""
     if args.changelog and Path(args.changelog).is_file():
         changelog = Path(args.changelog).read_text(encoding="utf-8", errors="replace").strip()
@@ -251,6 +285,10 @@ def main() -> int:
 
     display_name = f"{ADDON} {version}"
     log(f"version={version} releaseType={kind} displayName={display_name!r}")
+
+    if not args.no_sync_toc:
+        changed = sync_toc_versions(root, version)
+        log(f"TOC version -> {version}: {', '.join(changed) if changed else 'already up to date'}")
 
     archive = build_zip(root, version, Path(args.out_dir))
     if args.dry_run:

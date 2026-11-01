@@ -1,0 +1,18 @@
+version: 2
+
+# Keeps the pinned action versions current. Monthly, plus on demand from the
+# Actions tab (Dependabot -> Check for updates).
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "monthly"
+    commit-message:
+      prefix: "ci"
+    labels:
+      - "dependencies"
+      - "github-actions"
+    groups:
+      actions:
+        patterns:
+          - "*"

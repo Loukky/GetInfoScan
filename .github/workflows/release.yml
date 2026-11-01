@@ -19,7 +19,7 @@ on:
         default: true
 
 permissions:
-  contents: read
+  contents: write
   actions: read
 
 # Creating a Release for a new tag also pushes the tag, so both triggers fire
@@ -33,7 +33,8 @@ jobs:
   curseforge:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Check out
+        uses: actions/checkout@v7.0.1
         with:
           fetch-depth: 0
 
@@ -116,8 +117,30 @@ jobs:
 
       - name: Keep the built zip
         if: always() && steps.meta.outputs.skip != 'true'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7.0.2
         with:
           name: GetInfoScan-${{ steps.meta.outputs.version }}
           path: dist/*.zip
           if-no-files-found: warn
+
+      # The zip already carries the release version (the script rewrites the
+      # TOCs before packing). This keeps the repository in step, so the next
+      # release starts from a matching ## Version instead of a stale one.
+      - name: Sync TOC version to the default branch
+        if: steps.meta.outputs.skip != 'true' && inputs.dry_run != true
+        env:
+          VERSION: ${{ steps.meta.outputs.version }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          # Tag pushes check out a detached HEAD; the commit goes to main.
+          git checkout -q -B main origin/main
+          python3 .github/scripts/curseforge_release.py --tag "v${VERSION}" --sync-toc-only
+          if git diff --quiet -- '*.toc'; then
+            echo "TOC versions already at ${VERSION}"
+            exit 0
+          fi
+          git add -- '*.toc'
+          git commit -q -m "chore(release): set TOC version to ${VERSION}"
+          git push origin HEAD:main

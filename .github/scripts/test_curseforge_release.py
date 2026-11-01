@@ -128,6 +128,21 @@ def main() -> int:
     assert cfr.release_type(None) == "release"
     print("version/releaseType ok")
 
+    # ## Version in every TOC follows the release version, byte-for-byte apart
+    # from the value itself (BOM and CRLF must survive).
+    crlf = root / "GetInfoScan_TBC.toc"
+    crlf.write_bytes(b"\xef\xbb\xbf## Interface: 20506\r\n## Version: 1.4.0\r\n\r\nCore.lua\r\n")
+    changed = cfr.sync_toc_versions(root, "2.0.0")
+    assert len(changed) == 7, changed
+    for path in sorted(root.glob("*.toc")):
+        raw = path.read_bytes()
+        assert b"## Version: 2.0.0" in raw, (path.name, raw[:120])
+        assert b"## Version: 1.4.0" not in raw, path.name
+    assert crlf.read_bytes().startswith(b"\xef\xbb\xbf## Interface: 20506\r\n"), "BOM/CRLF lost"
+    assert crlf.read_bytes().count(b"\r\n") == 4, "line endings rewritten"
+    assert cfr.sync_toc_versions(root, "2.0.0") == [], "second run must be a no-op"
+    print("toc version sync ok")
+
     # Zip layout: everything under GetInfoScan/, no repo plumbing.
     archive = cfr.build_zip(root, "1.4.0", root / "dist")
     names = zipfile.ZipFile(archive).namelist()
