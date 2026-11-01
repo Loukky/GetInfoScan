@@ -100,9 +100,9 @@ def make_repo(root: Path) -> None:
 
 def main() -> int:
     cfr.API_BASE = serve(Handler)
-    # Plain makedirs, not mkdtemp: mkdtemp's 0700 mode can trip restricted
-    # filesystems, and this repo lives on one.
-    root = Path.cwd() / "_cfselftest"
+    # Scratch repo lives under .github/, which build_zip() never packages, so a
+    # crashed run cannot leak test files into a release.
+    root = HERE / "_cfselftest"
     shutil.rmtree(root, ignore_errors=True)
     root.mkdir(parents=True, exist_ok=True)
     make_repo(root)
@@ -181,6 +181,7 @@ def main() -> int:
     else:
         raise AssertionError("missing token must fail")
 
+    shutil.rmtree(root, ignore_errors=True)
     print("\nALL CHECKS PASSED")
     return 0
 

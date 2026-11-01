@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Package the addon and publish it to CurseForge.
 
-Standard library only, so the exact same file runs on a GitHub runner and on a
-developer machine. Nothing here is addon code; it only reads the TOC files.
+Runs inside the Release workflow; standard library only so the runner needs no
+setup. Nothing here is addon code — it only reads the TOC files.
 
-    CURSEFORGE_TOKEN=xxx python .github/scripts/curseforge_release.py --tag v1.4.0
+    python3 .github/scripts/curseforge_release.py --tag v1.4.0 --changelog dist/changelog.md
 
 Exit code 0 means the file is on CurseForge. Anything else fails the workflow.
 """

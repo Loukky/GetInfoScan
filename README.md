@@ -97,6 +97,7 @@ git tag v1.5.0 && git push origin v1.5.0
 - 标签含 `alpha` / `beta` 时对应 alpha / beta 发布，否则为正式版。
 - 游戏版本按 7 份 TOC 的 Interface 号自动映射，无需手工维护。
 - 想只验证打包不上传：手动运行 Release workflow，`dry_run` 保持勾选即可，zip 会作为 artifact 留下。
+- 打 tag 和建 Release 是同一件事，两个触发都会跑，但**只会上传一次**：后一个 run 检测到标签推送已发布成功就直接跳过。
 
 ## 授权
 
@@ -203,6 +204,7 @@ git tag v1.5.0 && git push origin v1.5.0
 - A tag containing `alpha` / `beta` publishes as alpha / beta, anything else as a release.
 - Game versions are mapped from the `## Interface` value in all 7 TOCs, so there is nothing to maintain by hand.
 - To check packaging without publishing, run the Release workflow manually and leave `dry_run` ticked — the zip is kept as an artifact.
+- Tagging and creating a Release are the same event, so both triggers fire, but the upload happens **once**: the second run sees that the tag push already published and skips.
 
 ### License
 

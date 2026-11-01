@@ -20,7 +20,11 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
+# Creating a Release for a new tag also pushes the tag, so both triggers fire
+# for the same version. The tag push runs first and the second run waits here,
+# which is what lets the duplicate check below see its result.
 concurrency:
   group: release-${{ github.event.release.tag_name || inputs.tag || github.ref_name }}
   cancel-in-progress: false
@@ -36,6 +40,7 @@ jobs:
       - name: Resolve tag and version
         id: meta
         env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           EVENT: ${{ github.event_name }}
           INPUT_TAG: ${{ inputs.tag }}
           RELEASE_TAG: ${{ github.event.release.tag_name }}
@@ -56,7 +61,26 @@ jobs:
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
           echo "version=$version" >> "$GITHUB_OUTPUT"
 
+          # Do not upload the same version twice: if the tag push already
+          # published it, this run only needs to confirm that.
+          skip=false
+          if [ "$EVENT" = "release" ]; then
+            prior=$(gh run list --workflow=release.yml --limit 50 \
+              --json headBranch,event,conclusion \
+              --jq "[.[] | select(.headBranch == \"$tag\" and .event == \"push\" and .conclusion == \"success\")] | length")
+            if [ "$prior" != "0" ]; then
+              echo "::notice::$tag was already published by its tag push; skipping upload"
+              skip=true
+            fi
+          fi
+          echo "skip=$skip" >> "$GITHUB_OUTPUT"
+
+      - name: Check the packaging script
+        if: steps.meta.outputs.skip != 'true'
+        run: python3 .github/scripts/test_curseforge_release.py
+
       - name: Build changelog
+        if: steps.meta.outputs.skip != 'true'
         env:
           EVENT: ${{ github.event_name }}
           TAG: ${{ steps.meta.outputs.tag }}
@@ -79,6 +103,7 @@ jobs:
           cat dist/changelog.md
 
       - name: Upload to CurseForge
+        if: steps.meta.outputs.skip != 'true'
         env:
           CURSEFORGE_TOKEN: ${{ secrets.CURSEFORGE_TOKEN }}
         run: |
@@ -90,7 +115,7 @@ jobs:
             ${{ inputs.dry_run == true && '--dry-run' || '' }}
 
       - name: Keep the built zip
-        if: always()
+        if: always() && steps.meta.outputs.skip != 'true'
         uses: actions/upload-artifact@v4
         with:
           name: GetInfoScan-${{ steps.meta.outputs.version }}
